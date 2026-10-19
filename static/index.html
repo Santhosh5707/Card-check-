@@ -1,0 +1,173 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card Check | Dual Screening</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6f8;color:#18212b;font:16px/1.5 system-ui,Arial,sans-serif}
+header{background:white;border-bottom:1px solid #ddd;padding:18px 6%;display:flex;justify-content:space-between;align-items:center}
+.brand{font-weight:850;letter-spacing:3px}.tag{font-size:11px;border:1px solid #ddd;border-radius:20px;padding:5px 9px;color:#536170}
+main{max-width:1050px;margin:auto;padding:30px 16px}
+.eyebrow{font-size:12px;font-weight:800;letter-spacing:2px;color:#2457d6}
+h1{font-size:clamp(32px,6vw,48px);line-height:1.1;letter-spacing:-1.5px;margin:12px 0}
+h2{font-size:22px;margin:8px 0}
+p{color:#65717d}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:white;border:1px solid #dce2e7;border-radius:16px;padding:22px;min-width:0}
+label{display:block;font-weight:700;margin:12px 0 7px}
+input[type=file]{width:100%;padding:12px;border:1px dashed #bbc5cf;border-radius:10px}
+textarea{width:100%;min-height:150px;padding:12px;border:1px solid #ccd4dc;border-radius:10px;font:13px monospace}
+button{background:#2457d6;color:white;border:0;border-radius:9px;padding:12px 16px;font-weight:700;cursor:pointer}
+button.secondary{background:white;color:#18212b;border:1px solid #ccd4dc}
+.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:14px}
+img{display:none;width:100%;max-height:250px;object-fit:contain;margin-top:12px;border-radius:10px;background:#eee}
+.result{overflow-wrap:anywhere;margin-top:14px;white-space:pre-wrap}
+.notice{background:#fff8e9;border-left:3px solid #d5a13d;padding:12px;font-size:13px;color:#74520c;border-radius:4px;margin-top:16px}
+.wide{grid-column:1/-1}footer{padding:22px;text-align:center;color:#65717d;font-size:12px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}.wide{grid-column:auto}.card{padding:17px}}
+</style>
+</head>
+<body>
+<header>
+<div class="brand">CARD CHECK</div>
+<span class="tag">DUAL SCREENING</span>
+</header>
+<main>
+<div class="eyebrow">IMAGE REVIEW + TRANSACTION RISK</div>
+<h1>Screen the image.<br>Assess transaction risk.</h1>
+<p>Two separate screening tools. Each result has its own limitations.</p>
+
+<div class="grid">
+<section class="card">
+<div class="eyebrow">01 — CARD IMAGE</div>
+<h2>Card image screening</h2>
+<p>Choose a JPG, PNG or WebP image up to 10 MB.</p>
+<label for="photo">Select card image</label>
+<input id="photo" type="file" accept="image/jpeg,image/png,image/webp">
+<img id="preview" alt="Selected image preview">
+<div class="actions">
+<button id="analyze">Analyze image</button>
+<button class="secondary" id="resetImage">Reset</button>
+</div>
+<div id="imageStatus" class="result" role="status"></div>
+<div id="imageResult" class="result"></div>
+<div class="notice">Image classification requires a trained counterfeit-card model and reliable labeled images. Image screening alone cannot prove authenticity.</div>
+</section>
+
+<section class="card">
+<div class="eyebrow">02 — TRANSACTION DATA</div>
+<h2>Fraud-risk prediction</h2>
+<p>Paste transaction rows as JSON. Feature names must match those used to train your model.</p>
+<label for="rows">Transaction rows</label>
+<textarea id="rows" placeholder='[{"Time":0,"V1":0.1,"V2":-0.2,"Amount":12.5}]'></textarea>
+<div class="actions">
+<button id="predict">Predict transaction risk</button>
+<button class="secondary" id="resetRows">Reset</button>
+</div>
+<div id="transactionStatus" class="result" role="status"></div>
+<div id="transactionResult" class="result"></div>
+<div class="notice">A trained transaction model is required. A risk score is an estimate, not proof of fraud.</div>
+</section>
+
+<section class="card wide">
+<div class="eyebrow">LIMITATIONS + PRIVACY</div>
+<h2>What Card Check can verify</h2>
+<ul>
+<li>Image screening can identify visual or quality concerns, but a photo cannot establish whether a card is genuine, active, stolen or authorized.</li>
+<li>Transaction fraud prediction requires a separately trained and evaluated machine-learning model.</li>
+<li>Authoritative card verification requires an authorized payment processor or issuer.</li>
+<li>Do not submit real card numbers, CVVs, expiry dates or personal data.</li>
+</ul>
+<div id="modelStatus" class="result">Checking model availability…</div>
+</section>
+</div>
+</main>
+<footer>CARD CHECK · IMAGE SCREENING IS NOT AUTHENTICATION · MODEL SCORES ARE NOT PROOF</footer>
+<script>
+const $=id=>document.getElementById(id);
+let chosen=null;
+function safe(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+$('photo').addEventListener('change',()=>{
+ const f=$('photo').files[0];
+ if(!f)return;
+ if(!['image/jpeg','image/png','image/webp'].includes(f.type)||f.size>10*1024*1024){
+  $('imageStatus').textContent='Choose a JPG, PNG or WebP image under 10 MB.';
+  $('photo').value='';return;
+ }
+ chosen=f;$('preview').src=URL.createObjectURL(f);
+ $('preview').style.display='block';$('imageStatus').textContent='Image ready.';
+ $('imageResult').textContent='';
+});
+
+$('resetImage').onclick=()=>{
+ chosen=null;$('photo').value='';$('preview').removeAttribute('src');
+ $('preview').style.display='none';$('imageStatus').textContent='Reset complete.';
+ $('imageResult').textContent='';
+};
+
+$('analyze').onclick=async()=>{
+ if(!chosen){$('imageStatus').textContent='Choose an image first.';return;}
+ const b=$('analyze');b.disabled=true;
+ $('imageStatus').textContent='Analyzing…';$('imageResult').textContent='';
+ try{
+  const fd=new FormData();fd.append('file',chosen);
+  const r=await fetch('/api/screen-image',{method:'POST',body:fd});
+  const d=await r.json();if(!r.ok)throw Error(d.detail||'Analysis failed.');
+  $('imageStatus').textContent=d.outcome||'Analysis complete.';
+  $('imageResult').textContent=
+   (d.explanation||'')+'\n\n'+
+   (d.checks||[]).map(c=>c.name+': '+c.detail).join('\n')+
+   '\n\n'+(d.limitations||[]).join('\n');
+ }catch(e){$('imageStatus').textContent='Error: '+e.message;}
+ finally{b.disabled=false;}
+};
+
+$('resetRows').onclick=()=>{
+ $('rows').value='';$('transactionStatus').textContent='Reset complete.';
+ $('transactionResult').textContent='';
+};
+
+$('predict').onclick=async()=>{
+ let transactions;
+ try{
+  transactions=JSON.parse($('rows').value);
+  if(!Array.isArray(transactions)||!transactions.length||
+     transactions.some(x=>!x||typeof x!=='object'||Array.isArray(x)))
+   throw Error('Enter a non-empty JSON array of transaction objects.');
+ }catch(e){$('transactionStatus').textContent=e.message;return;}
+ if(transactions.length>500){
+  $('transactionStatus').textContent='Send at most 500 rows per request.';return;
+ }
+ const b=$('predict');b.disabled=true;
+ $('transactionStatus').textContent='Checking model…';
+ $('transactionResult').textContent='';
+ try{
+  const r=await fetch('/api/predict-transactions',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({transactions})
+  });
+  const d=await r.json();if(!r.ok)throw Error(d.detail||'Prediction failed.');
+  $('transactionStatus').textContent='Predictions completed.';
+  $('transactionResult').textContent=
+   (d.warning||'')+'\n\n'+d.results.map(x=>
+   'Row '+x.row+': '+x.risk+' — estimated fraud probability '+
+   (x.fraud_probability*100).toFixed(2)+'%'
+   ).join('\n');
+ }catch(e){$('transactionStatus').textContent='Error: '+e.message;}
+ finally{b.disabled=false;}
+};
+
+fetch('/api/status').then(r=>r.json()).then(d=>{
+ $('modelStatus').textContent='Image screen: '+d.image_screening+
+ '\nTransaction model ready: '+(d.transaction_model_ready?'Yes':'No')+
+ '\n'+d.transaction_model_note;
+}).catch(()=>{
+ $('modelStatus').textContent='API unavailable. This page must run with the Python backend.';
+});
+</script>
+</body>
+  </html>
+  
