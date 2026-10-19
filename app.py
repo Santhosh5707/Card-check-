@@ -82,26 +82,78 @@ async def screen_image(file: UploadFile = File(...)):
             "classification":"HEURISTIC IMAGE SCREEN — NOT AUTHENTICITY VERIFICATION", "checks":checks,
             "limitations":["No trained counterfeit-card image model is included.", "These checks cannot determine whether a card is genuine, active, stolen, cloned, or owned by the presenter.", "Avoid images showing card numbers, CVV, or personal details."]}
 
+
 @app.post("/api/predict-transactions")
 def predict_transactions(payload: TransactionRequest):
     if not payload.transactions:
         raise HTTPException(400, "Provide at least one transaction row.")
+
     if len(payload.transactions) > 500:
         raise HTTPException(413, "Send at most 500 transactions per request.")
+
     if not MODEL_PATH.exists():
-        raise HTTPException(503, "Transaction model is not trained/installed. Follow README.md to train it with an authorized labeled dataset.")
+        raise HTTPException(503, "Transaction model is not installed.")
+
     try:
         model = joblib.load(MODEL_PATH)
         frame = pd.DataFrame(payload.transactions)
-        expected = list(model.feature_names_in_)
+
+        # Get the exact feature names used during training.
+        expected = getattr(model, "feature_names_in_", None)
+
+        if expected is None and hasattr(model, "named_steps"):
+            imputer = model.named_steps.get("imputer")
+            expected = getattr(imputer, "feature_names_in_", None)
+
+        if expected is None:
+            raise HTTPException(
+                500,
+                "Could not determine the model's required feature columns."
+            )
+
+        expected = list(expected)
         missing = [c for c in expected if c not in frame.columns]
+
         if missing:
-            raise HTTPException(400, "Missing required feature columns: " + ", ".join(missing))
-        probs = model.predict_proba(frame[expected])[:, 1]
-        return {"model":"trained scikit-learn transaction classifier", "threshold":0.5,
-                "results":[{"row":i+1,"fraud_probability":round(float(p),6),"risk":"High model-estimated risk" if p>=0.5 else "Lower model-estimated risk"} for i,p in enumerate(probs)],
-                "warning":"Scores are estimates, not proof. Review model metrics and calibrate the threshold for your use case."}
+            raise HTTPException(
+                400,
+                f"Missing {len(missing)} required feature columns: "
+                + ", ".join(missing)
+            )
+
+        # Use the same feature order as the training data.
+        frame = frame[expected]
+        probabilities = model.predict_proba(frame)[:, 1]
+
+        results = []
+        for i, probability in enumerate(probabilities):
+            p = float(probability)
+            results.append({
+                "row": i + 1,
+                "fraud_probability": round(p, 6),
+                "risk": (
+                    "High model-estimated risk"
+                    if p >= 0.5
+                    else "Lower model-estimated risk"
+                )
+            })
+
+        return {
+            "model": "Trained transaction classifier",
+            "threshold": 0.5,
+            "results": results,
+            "warning": (
+                "Estimates only, not proof of fraud. "
+                "This model was trained on a limited labeled dataset; "
+                "its results may not generalize to real-world transactions."
+            )
+        }
+
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(400, f"Could not score the provided data: {exc}")
+        raise HTTPException(
+            400,
+            f"Could not score the provided data: {exc}"
+        )
+
